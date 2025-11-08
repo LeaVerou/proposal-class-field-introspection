@@ -1,50 +1,70 @@
-# template-for-proposals
+# Class field introspection
 
-A repository template for ECMAScript proposals.
+## Status
 
-## Before creating a proposal
+Champion(s): Lea Verou
 
-Please ensure the following:
-  1. You have read the [process document](https://tc39.github.io/process-document/)
-  1. You have reviewed the [existing proposals](https://github.com/tc39/proposals/)
-  1. You are aware that your proposal requires being a member of TC39, or locating a TC39 delegate to “champion” your proposal
+Author(s): Lea Verou
 
-## Create your proposal repo
+Stage: 0
 
-Follow these steps:
-  1. Click the green [“use this template”](https://github.com/tc39/template-for-proposals/generate) button in the repo header. (Note: Do not fork this repo in GitHub's web interface, as that will later prevent transfer into the TC39 organization)
-  1. Update ecmarkup and the biblio to the latest version: `npm install --save-dev ecmarkup@latest && npm install --save-dev --save-exact @tc39/ecma262-biblio@latest`.
-  1. Go to your repo settings page:
-      1. Under “General”, under “Features”, ensure “Issues” is checked, and disable “Wiki”, and “Projects” (unless you intend to use Projects)
-      1. Under “Pull Requests”, check “Always suggest updating pull request branches” and “automatically delete head branches”
-      1. Under the “Pages” section on the left sidebar, and set the source to “deploy from a branch”, select “gh-pages” in the branch dropdown, and then ensure that “Enforce HTTPS” is checked.
-      1. Under the “Actions” section on the left sidebar, under “General”, select “Read and write permissions” under “Workflow permissions” and click “Save”
-  1. [“How to write a good explainer”][explainer] explains how to make a good first impression.
+## Motivation
 
-      > Each TC39 proposal should have a `README.md` file which explains the purpose
-      > of the proposal and its shape at a high level.
-      >
-      > ...
-      >
-      > The rest of this page can be used as a template ...
+Public class fields made the common pattern of declaring instance properties more declarative.
 
-      Your explainer can point readers to the `index.html` generated from `spec.emu`
-      via markdown like
+However, while static class fields can be trivially introspected by looking at constructor properties, there is no way to introspect instance fields from a class reference without creating an instance (which is not always practical, or even allowed), since they are not exposed on the class [[Prototype]].
 
-      ```markdown
-      You can browse the [ecmarkup output](https://ACCOUNT.github.io/PROJECT/)
-      or browse the [source](https://github.com/ACCOUNT/PROJECT/blob/HEAD/spec.emu).
-      ```
+This limits many metaprogramming use cases, as there is no way to figure out the shape of the class from the outside without creating an instance.
 
-      where *ACCOUNT* and *PROJECT* are the first two path elements in your project's Github URL.
-      For example, for github.com/**tc39**/**template-for-proposals**, *ACCOUNT* is “tc39”
-      and *PROJECT* is “template-for-proposals”.
+## Use cases
 
+For example, this includes all the use cases for [class spread syntax](../class-spread/README.md) and other similar features.
 
-## Maintain your proposal repo
+> TBD: expand on use cases, add use cases not covered by class spread syntax.
 
-  1. Make your changes to `spec.emu` (ecmarkup uses HTML syntax, but is not HTML, so I strongly suggest not naming it “.html”)
-  1. Any commit that makes meaningful changes to the spec, should run `npm run build` to verify that the build will succeed and the output looks as expected.
-  1. Whenever you update `ecmarkup`, run `npm run build` to verify that the build will succeed and the output looks as expected.
+## Proposal
 
-  [explainer]: https://github.com/tc39/how-we-work/blob/HEAD/explainer.md
+A new known symbol that provides read-only access to a class's internal `[[ Fields ]]` slot (or a subset).
+
+### Design decisions
+
+#### Public only or private too?
+
+While at first it seems like exposing private fields would violate encapsulation, it does not reveal anything that is not _already_ revealed by simply accessing the class's [[SourceText]].
+
+However, if exposing public fields only is easier to implement, that would be a valid trade-off, since most introspection use cases are about public API surface.
+
+#### Data structure should support future mutability
+
+While it seems prudent to only expose a read-only data structure, it should be designed to support potential (limited) future mutability, as there are many use cases that could benefit from even append-only mutations.
+
+For example, a frozen array would fulfill that requirement, as it can later evolve to a regular array (with some properties non-writable and non-configurable) without breaking existing code.
+
+#### Potential known symbol name
+
+Depending on the design decisions above, the following are potential known symbol names that could work for holding this data structure:
+
+- `Symbol.fields`
+- `Symbol.classFields`
+- `Symbol.instanceFields`
+- `Symbol.publicFields`
+
+The proposal will use `Symbol.fields` for now, as a placeholder.
+
+### Strawman
+
+_Just for the sake of getting the discussion started._
+
+The initial value of `Symbol.fields` is the well-known symbol `%Symbol.fields%`.
+
+This property has the attributes { [[Writable]]: **false**, [[Enumerable]]: **false**, [[Configurable]]: **false** }.
+
+It is an accessor on the class constructor function object, so it’s computed from `[[ Fields ]]` and can stay consistent with decorators or other transforms that might reorder/augment during definition time.
+
+The getter returns an append-only _List_ of _Record_ objects, each with the following properties:
+- `name`: The name of the field, same as [[Name]] on [ClassFieldDefinition](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-classfielddefinition-record-specification-type). (`string` or `Symbol`)
+- `initializer`: The initializer of the field, same as [[Initializer]] on [ClassFieldDefinition](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-classfielddefinition-record-specification-type). (`Function`)
+- `isStatic`: Whether the field is static. (`boolean`)
+- `isPrivate`: Whether the field is private. (`boolean`)
+
+The list is exposed as a frozen array.
