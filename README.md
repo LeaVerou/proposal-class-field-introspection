@@ -1,5 +1,19 @@
 # Class field introspection
 
+
+<details open>
+<summary><strong>Table of contents</strong></summary>
+
+1. [Status](#status)
+2. [Overview](#overview)
+3. [Motivation](#motivation)
+4. [Use cases](#use-cases)
+5. [Detailed design](#detailed-design)
+	1. [Design decisions](#design-decisions)
+	2. [Strawman](#strawman)
+
+</details>
+
 ## Status
 
 Champion(s): Lea Verou
@@ -7,6 +21,30 @@ Champion(s): Lea Verou
 Author(s): Lea Verou
 
 Stage: 0
+
+## Overview
+
+This proposal introduces a new known symbol `Symbol.fields` that provides read-only access to a class's internal `[[ Fields ]]` slot (or only subset that are public) as a frozen array.
+
+It enables usage such as:
+
+```js
+class A {
+	#foo = 1;
+	bar = 2;
+
+	static baz = 3;
+	static #qux = 4;
+}
+
+console.log(A[Symbol.fields]);
+// [
+//   { name: "foo", initializer () { return 1; }, static: false, private: true },
+//   { name: "bar", initializer () { return 2; }, static: false, private: false },
+//   { name: "baz", initializer () { return 3; }, static: true, private: false },
+//   { name: "qux", initializer () { return 4; }, static: true, private: true },
+// ]
+```
 
 ## Motivation
 
@@ -22,17 +60,19 @@ For example, this includes all the use cases for [class spread syntax](../class-
 
 > TBD: expand on use cases, add use cases not covered by class spread syntax.
 
-## Proposal
+## Detailed design
 
-A new known symbol that provides read-only access to a class's internal `[[ Fields ]]` slot (or a subset).
+A new known symbol (`Symbol.fields`? bikeshedding below) that provides read-only access to a class's internal `[[ Fields ]]` slot (or a subset).
 
 ### Design decisions
 
-#### Public only or private too?
+#### Can we expose private fields?
 
 While at first it seems like exposing private fields would violate encapsulation, it does not reveal anything that is not _already_ revealed by simply accessing the class's [[SourceText]].
 
 However, if exposing public fields only is easier to implement, that would be a valid trade-off, since most introspection use cases are about public API surface.
+
+It is also unclear whether there are any use cases that _need_ to access private fields, since there is nothing useful to do with them from the outside.
 
 #### Data structure should support future mutability
 
@@ -64,7 +104,7 @@ It is an accessor on the class constructor function object, so it’s computed f
 The getter returns an append-only _List_ of _Record_ objects, each with the following properties:
 - `name`: The name of the field, same as [[Name]] on [ClassFieldDefinition](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-classfielddefinition-record-specification-type). (`string` or `Symbol`)
 - `initializer`: The initializer of the field, same as [[Initializer]] on [ClassFieldDefinition](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-classfielddefinition-record-specification-type). (`Function`)
-- `isStatic`: Whether the field is static. (`boolean`)
-- `isPrivate`: Whether the field is private. (`boolean`)
+- `static`: Whether the field is static. (`boolean`)
+- `private`: Whether the field is private. (`boolean`)
 
 The list is exposed as a frozen array.
