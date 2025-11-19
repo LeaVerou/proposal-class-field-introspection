@@ -8,10 +8,13 @@
 2. [Overview](#overview)
 3. [Motivation](#motivation)
 4. [Use cases](#use-cases)
-	1. [Facilitating forwarding or API glue code for the delegation pattern](#facilitating-forwarding-or-api-glue-code-for-the-delegation-pattern)
+	1. [Relationship to class spread syntax proposal](#relationship-to-class-spread-syntax-proposal)
+	2. [Relationship to decorators](#relationship-to-decorators)
+	3. [Facilitating forwarding or API glue code for the delegation pattern](#facilitating-forwarding-or-api-glue-code-for-the-delegation-pattern)
 5. [Detailed design](#detailed-design)
 	1. [Design decisions](#design-decisions)
 	2. [Strawman](#strawman)
+	3. [Implementation considerations](#implementation-considerations)
 
 </details>
 
@@ -69,9 +72,17 @@ Public class fields made the common pattern of declaring instance properties mor
 
 However, while static class fields can be trivially introspected by looking at constructor properties, there is no way to introspect instance fields from a class reference without creating an instance (which is not always practical, or even allowed), since they are not exposed on the class [[Prototype]].
 
-This limits many metaprogramming use cases, as there is no way to figure out the shape of the class from the outside without creating an instance.
+This limits many metaprogramming use cases, as there is no way to figure out the shape of the class from the outside without creating an instance (which is not always side effect free).
 
-While it can be argued that exposing private fields would violate encapsulation (see discussion below), public fields are part of the public API, and from the outside have little difference over read/write accessors.
+While it can be argued that exposing private fields would violate encapsulation (see discussion below),
+public fields are part of the public API, and from the outside have little difference over read/write accessors.
+
+Sure, the underlying mechanics are different, fields are hung on the instance whereas methods and accessors are hung on the prototype,
+but to JS authors that is largely an implementation detail.
+When they need to run logic on property access or assignment, they use accessors.
+When they don't, they use fields because that's the language abstraction that is available and hanging value properties on the prototype is usually nonsensical.
+Other languages don't even expose such a distinction.
+
 There is no reason why this would be introspectable from the outside:
 
 ```js
@@ -90,9 +101,53 @@ class A {
 }
 ```
 
+There are even cases where _methods_ are defined as class fields, for all sorts of reasons, e.g. to dynamically define them based on some condition.
+There is no reason why this would be introspectable from the outside:
+
+```js
+class A {
+	foo () { return 1; }
+}
+```
+
+but this would be:
+
+```js
+class A {
+	foo = function() { return 1; }
+}
+```
+
+Effectively, public class fields have become _a new type of prototype_ holding part of the class shape.
+This just provides access to it.
+
 ## Use cases
 
 Many use cases are very similar to those of [class spread syntax](../class-spread/README.md).
+
+### Relationship to class spread syntax proposal
+
+If that proposal is accepted, class field introspection can become one of the low-level primitives that can explain how it works and reduce the amount of internal implementation "magic".
+Additionally, it means that it becomes possible to specify fields via spreading an object too, since the object can simply specify that property:
+
+```js
+class A {
+	...{
+		[Symbol.publicFields]: {
+			foo: 1,
+		}
+	};
+}
+```
+
+If down the line we get append functionality, that would enable spread-like patterns to be applied post-hoc.
+
+### Relationship to decorators
+
+Class decorators do not currently have access to class fields, which limits certain use cases.
+E.g. to extend the logged use case from the [explainer](https://github.com/tc39/proposal-decorators),
+suppose we wanted a class decorator that turned every field into an accessor that logged its access.
+With the current design, we can't do that (without decorating every single field).
 
 ### Facilitating forwarding or API glue code for the delegation pattern
 
@@ -184,7 +239,7 @@ Since the vast majority of use cases only need access to public fields, if expos
 
 In that case, the symbol should be named something that indicates that only public fields are exposed, e.g. `Symbol.publicFields`.
 
-#### Data structure should support future mutability
+#### Supporting future mutability
 
 The current proposal is about a read-only data structure, because that is much less controversial and easier to implement.
 However, there are many use cases that could benefit from even just append mutations.
@@ -224,3 +279,7 @@ The getter returns a read-only _List_ of _Record_ objects, each with the followi
 - `private`: Whether the field is private. (`boolean`)
 
 The list is exposed as a frozen array.
+
+### Implementation considerations
+
+The `initializer` property may need to be lazily-evaluated, as implementations do not store functions for initializers, and should not need to generate such functions in advance.
